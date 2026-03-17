@@ -1,3 +1,12 @@
+//! Go-style base32 encoding for unsigned 64-bit integers.
+//!
+//! This module provides base32 encoding that matches Go's `strconv.FormatUint(n, 32)` behavior,
+//! using lowercase alphanumeric characters (0-9, a-z). This is used to maintain compatibility
+//! with Go-generated identifiers in OpenShift components.
+//!
+//! The encoding uses digits 0-9 and letters a-v (32 total symbols) and produces compact
+//! string representations of u64 values.
+
 const BASE32_DIGITS: &[u8; 36] = b"0123456789abcdefghijklmnopqrstuvwxyz";
 const BASE32: u64 = 32;
 const BASE32_MASK: u64 = BASE32 - 1;

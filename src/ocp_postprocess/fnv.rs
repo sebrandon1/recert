@@ -1,3 +1,12 @@
+//! FNV-1 hash algorithm implementation.
+//!
+//! This module implements the Fowler-Noll-Vo (FNV-1) non-cryptographic hash function
+//! in both 32-bit and 64-bit variants. FNV-1 is a fast hash function with good
+//! distribution properties, suitable for hash tables and checksums.
+//!
+//! The implementation follows the FNV-1 specification using multiplication and XOR
+//! operations. This is **not** suitable for cryptographic purposes.
+
 pub(crate) fn fnv1_32(data: &[u8]) -> u32 {
     let mut hash = 0x811c9dc5u32;
     for byte in data {

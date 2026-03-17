@@ -1,3 +1,9 @@
+//! JSON utility functions for extracting string fields from serde_json Values.
+//!
+//! This module provides convenience functions for safely reading string values
+//! from JSON objects, particularly metadata fields in Kubernetes resources.
+//! All functions return `Option<String>` to handle missing or non-string values gracefully.
+
 use serde_json::Value;
 
 pub(crate) fn read_string_field(value: &Value, field: &str) -> Option<String> {
