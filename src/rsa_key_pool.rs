@@ -80,4 +80,8 @@ impl RsaKeyPool {
     pub(crate) fn len(&self) -> usize {
         self.keys_2048.len() + self.keys_4096.len()
     }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
