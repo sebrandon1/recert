@@ -1,0 +1,46 @@
+---
+name: Cargo
+on:  # yamllint disable-line rule:truthy
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  schedule:
+    # Monday 07:17 UTC; offset from the hour to avoid thundering herd
+    - cron: "17 7 * * 1"
+permissions:
+  contents: read
+concurrency:
+  group: cargo-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  locked:
+    name: locked
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Check Cargo.lock is up to date
+        run: cargo metadata --locked --offline --format-version 1 > /dev/null
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # Install from runner.temp so this repo's .cargo/config.toml does not
+      # rewrite crates.io to vendor/ (cargo-audit is not vendored).
+      - name: Install cargo-audit
+        working-directory: ${{ runner.temp }}
+        run: cargo install cargo-audit --locked --version "0.22.2" --root "${{ runner.temp }}/cargo-audit"
+      - name: Audit Cargo.lock
+        run: |
+          export PATH="${{ runner.temp }}/cargo-audit/bin:$PATH"
+          cargo audit

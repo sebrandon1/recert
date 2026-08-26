@@ -1,0 +1,27 @@
+# cargo-audit config. Advisories listed here are present in the current
+# vendored Cargo.lock. Clearing them requires a dependency bump + vendor
+# refresh, which is out of scope for adding the CI check itself.
+#
+# See: https://github.com/rustsec/rustsec
+
+[advisories]
+ignore = [
+    # bytes 1.5.0: integer overflow in BytesMut::reserve. Fix: >=1.11.1
+    "RUSTSEC-2026-0007",
+    # h2 0.3.21: CONTINUATION flood DoS. Fix: ^0.3.26 or >=0.4.4
+    "RUSTSEC-2024-0332",
+    # h2 0.3.21: unbounded empty DATA frames. Fix: >=0.4.16
+    "RUSTSEC-2026-0258",
+    # h2 0.3.21: resource exhaustion DoS. Fix: ^0.3.24 or >=0.4.2
+    "RUSTSEC-2024-0003",
+    # idna 0.4.0: Punycode labels that decode to no non-ASCII. Fix: >=1.0.0
+    "RUSTSEC-2024-0421",
+    # mio 0.8.9: named-pipe tokens after deregistration (Windows). Fix: >=0.8.11
+    "RUSTSEC-2024-0019",
+    # ring 0.16.20 and 0.17.5: AES panic with overflow checks. Fix: >=0.17.12
+    "RUSTSEC-2025-0009",
+    # rsa 0.9.10: Marvin timing sidechannel. No fixed upgrade available.
+    "RUSTSEC-2023-0071",
+    # time 0.3.36: stack exhaustion DoS. Fix: >=0.3.47
+    "RUSTSEC-2026-0009",
+]

@@ -199,6 +199,26 @@ rust-test: ## Run Rust tests
 rust-ci: rust-deps rust-fmt rust-check rust-clippy rust-test rust-compile ## Run all Rust CI checks (used for Github actions workflow)
 	@echo "All Rust CI checks completed successfully."
 
+# cargo-audit version must match .github/workflows/cargo.yml
+CARGO_AUDIT_VERSION ?= 0.22.2
+
+.PHONY: cargo-locked
+cargo-locked: ## Verify Cargo.lock matches Cargo.toml (no compile)
+	@echo "Checking Cargo.lock is up to date..."
+	cargo metadata --locked --offline --format-version 1 >/dev/null
+	@echo "Cargo.lock check completed successfully."
+
+.PHONY: cargo-audit
+cargo-audit: ## Scan Cargo.lock for RustSec advisories
+	@echo "Running cargo audit..."
+	@if ! command -v cargo-audit >/dev/null 2>&1; then \
+		echo "cargo-audit not found. Install from outside this repo (so .cargo/config.toml does not rewrite crates.io to vendor/):"; \
+		echo "  (cd /tmp && cargo install cargo-audit --locked --version $(CARGO_AUDIT_VERSION))"; \
+		exit 1; \
+	fi
+	cargo audit
+	@echo "Cargo audit completed successfully."
+
 .PHONY: help
 help: ## Display available targets
 	@echo "Available targets:"
