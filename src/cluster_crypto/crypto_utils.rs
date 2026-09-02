@@ -818,4 +818,62 @@ wotPP4a26KThoHHoFw7o6RWG6DPLTYoUIzEe7NmZmk3ZtYTWrut1MTquAv4Juy0A
             "should report unknown format"
         );
     }
+
+    #[test]
+    fn test_ed25519_pkcs8_to_v2_produces_valid_v2() {
+        let output = std::process::Command::new("openssl")
+            .args(["genpkey", "-algorithm", "Ed25519"])
+            .output()
+            .expect("failed to generate Ed25519 key");
+        assert!(output.status.success());
+
+        let parsed = pem::parse(&output.stdout).unwrap();
+        let v2 = super::ed25519_pkcs8_to_v2(parsed.contents()).expect("ed25519_pkcs8_to_v2 should succeed");
+        assert_eq!(v2.len(), 85, "PKCS#8 v2 DER should be 85 bytes");
+        assert_eq!(v2[4], 0x01, "version should be 1 for PKCS#8 v2");
+        assert_eq!(&v2[9..12], &[0x2b, 0x65, 0x70], "OID should be Ed25519 (1.3.101.112)");
+
+        let pair = x509_certificate::InMemorySigningKeyPair::from_pkcs8_der(&v2);
+        assert!(pair.is_ok(), "v2 DER should be parseable by ring 0.16: {:?}", pair.err());
+    }
+
+    #[test]
+    fn test_ed25519_pkcs8_to_v2_rejects_short_der() {
+        let short_der = vec![0u8; 47];
+        let result = super::ed25519_pkcs8_to_v2(&short_der);
+        assert!(result.is_err(), "should reject DER shorter than 48 bytes");
+    }
+
+    #[test]
+    fn test_ed25519_pkcs8_to_v2_rejects_garbage() {
+        let garbage = vec![0xDE, 0xAD, 0xBE, 0xEF];
+        let result = super::ed25519_pkcs8_to_v2(&garbage);
+        assert!(result.is_err(), "should reject garbage input");
+    }
+
+    #[test]
+    fn test_signing_key_pair_from_pkcs8_der_garbage() {
+        let result = super::signing_key_pair_from_pkcs8_der(&[0xDE, 0xAD]);
+        assert!(result.is_err(), "garbage DER should fail both primary and fallback paths");
+    }
+
+    #[test]
+    fn test_signing_key_clone_ed25519() {
+        let key = super::generate_ed25519_key().expect("generate failed");
+        let cloned = key.clone();
+        assert!(
+            matches!(cloned.in_memory_signing_key_pair, super::InMemorySigningKeyPair::Ed25519(_)),
+            "cloned key should be Ed25519"
+        );
+
+        let signature = super::sign(&cloned, b"clone test data").expect("sign with clone should succeed");
+        assert_eq!(signature.len(), 64, "Ed25519 signature should be 64 bytes");
+    }
+
+    #[test]
+    fn test_try_from_signing_key_ec() {
+        let signing_key = super::generate_ec_key(super::EcdsaCurve::Secp256r1).expect("generate_ec_key failed");
+        let private_key = signing_key.to_private_key().expect("to_private_key should succeed for EC");
+        assert!(matches!(private_key, super::PrivateKey::Ec(_)), "expected PrivateKey::Ec");
+    }
 }
