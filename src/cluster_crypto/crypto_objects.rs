@@ -234,31 +234,9 @@ pub(crate) fn process_pem_rsa_private_key(pem: &pem::Pem) -> Result<Option<Crypt
 
 /// Given an EC private key PEM, record it in the appropriate data structures.
 pub(crate) fn process_pem_ec_private_key(pem: &pem::Pem) -> Result<Option<CryptoObject>> {
-    // First convert to pkcs#8 by shelling out to openssl pkcs8 -topk8 -nocrypt:
-    let mut command = Command::new("openssl")
-        .arg("pkcs8")
-        .arg("-topk8")
-        .arg("-nocrypt")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()?;
-
-    command
-        .stdin
-        .take()
-        .context("failed to take openssl stdin pipe")?
-        .write_all(pem.to_string().as_bytes())?;
-
-    let output = command.wait_with_output()?;
-    let pkcs8_pem = pem::parse(output.stdout)?;
-    let pkcs8_der = pkcs8_pem.contents();
-
-    let pubkey_pem = super::crypto_utils::pubkey_pem_from_pkcs8_der(pkcs8_der).context("extracting EC public key")?;
-
-    let private_part = PrivateKey::Ec(Bytes::copy_from_slice(pkcs8_der));
-    let public_part = PublicKey::Ec(pubkey_pem.into());
-
-    Ok(Some((private_part, public_part).into()))
+    let pkcs8_pem_str = super::crypto_utils::ec_sec1_to_pkcs8_pem(&pem.to_string()).context("converting SEC1 to PKCS#8")?;
+    let pkcs8_pem = pem::parse(pkcs8_pem_str)?;
+    process_pem_private_key(&pkcs8_pem)
 }
 
 /// Given a certificate PEM, record it in the appropriate data structures.
@@ -610,5 +588,106 @@ mod tests {
             result.unwrap_err().to_string().contains("Ed25519"),
             "error message should mention Ed25519"
         );
+    }
+
+    #[test]
+    fn test_public_key_from_ec_p384_private_key() {
+        let pkcs8_pem_bytes = generate_ec_pkcs8_pem("secp384r1");
+        let parsed = pem::parse(&pkcs8_pem_bytes).expect("failed to parse PEM");
+        let result = process_pem_private_key(&parsed).expect("process failed").expect("expected Some");
+        match result {
+            CryptoObject::PrivateKey(private_key, _) => {
+                let public_key = PublicKey::try_from(&private_key).expect("PublicKey::try_from should succeed for EC P-384");
+                assert!(matches!(public_key, PublicKey::Ec(_)), "expected PublicKey::Ec");
+            }
+            _ => panic!("expected CryptoObject::PrivateKey"),
+        }
+    }
+
+    fn generate_ec_sec1_pem(curve: &str) -> Vec<u8> {
+        let output = Command::new("openssl")
+            .args(["ecparam", "-name", curve, "-genkey", "-noout"])
+            .output()
+            .expect("failed to generate EC key");
+        assert!(output.status.success());
+        output.stdout
+    }
+
+    fn assert_sec1_ec_key_round_trips(curve: &str) {
+        let sec1_pem_bytes = generate_ec_sec1_pem(curve);
+        let parsed = pem::parse(&sec1_pem_bytes).expect("failed to parse PEM");
+        assert_eq!(parsed.tag(), "EC PRIVATE KEY");
+
+        let result = process_pem_ec_private_key(&parsed).expect("process_pem_ec_private_key failed");
+        let crypto_obj = result.expect("expected Some(CryptoObject)");
+
+        match crypto_obj {
+            CryptoObject::PrivateKey(private_key, public_key) => {
+                match &private_key {
+                    PrivateKey::Ec(bytes) => {
+                        assert_ne!(bytes.as_ref(), parsed.contents(), "stored bytes should differ from SEC1 input");
+                        let pkcs8_pem = pem::Pem::new("PRIVATE KEY", bytes.as_ref());
+                        InMemorySigningKeyPair::from_pkcs8_der(pkcs8_pem.contents()).expect("stored bytes should be valid PKCS#8 DER");
+                    }
+                    _ => panic!("expected PrivateKey::Ec"),
+                }
+                match &public_key {
+                    PublicKey::Ec(pem_bytes) => {
+                        let pub_pem = pem::parse(pem_bytes.as_ref()).expect("public key should be valid PEM");
+                        assert_eq!(pub_pem.tag(), "PUBLIC KEY");
+                    }
+                    _ => panic!("expected PublicKey::Ec"),
+                }
+            }
+            _ => panic!("expected CryptoObject::PrivateKey"),
+        }
+    }
+
+    #[test]
+    fn test_process_pem_ec_private_key_sec1_p256() {
+        assert_sec1_ec_key_round_trips("prime256v1");
+    }
+
+    #[test]
+    fn test_process_pem_ec_private_key_sec1_p384() {
+        assert_sec1_ec_key_round_trips("secp384r1");
+    }
+
+    #[test]
+    fn test_process_pem_ec_private_key_corrupted_sec1() {
+        let garbage = pem::Pem::new("EC PRIVATE KEY", vec![0xDE, 0xAD, 0xBE, 0xEF]);
+        let result = process_pem_ec_private_key(&garbage);
+        assert!(result.is_err(), "corrupted SEC1 DER should produce an error");
+    }
+
+    #[test]
+    fn test_process_pem_bundle_mixed_ec_rsa() {
+        let ec_pem_bytes = generate_ec_pkcs8_pem("prime256v1");
+        let rsa_output = Command::new("openssl")
+            .args(["genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048"])
+            .output()
+            .expect("failed to generate RSA key");
+        assert!(rsa_output.status.success());
+
+        let mut bundle = String::from_utf8(ec_pem_bytes).expect("EC PEM not UTF-8");
+        bundle.push_str(&String::from_utf8(rsa_output.stdout).expect("RSA PEM not UTF-8"));
+
+        let pems = pem::parse_many(&bundle).expect("failed to parse bundle");
+        assert_eq!(pems.len(), 2);
+
+        let mut found_ec = false;
+        let mut found_rsa = false;
+        for p in &pems {
+            let result = process_single_pem(p, &super::super::scanning::ExternalCerts::empty())
+                .expect("process_single_pem failed")
+                .expect("expected Some");
+            match result {
+                CryptoObject::PrivateKey(PrivateKey::Ec(_), _) => found_ec = true,
+                CryptoObject::PrivateKey(PrivateKey::Rsa(_), _) => found_rsa = true,
+                _ => panic!("unexpected CryptoObject variant"),
+            }
+        }
+        assert!(found_ec, "should find EC key in bundle");
+        assert!(found_rsa, "should find RSA key in bundle");
     }
 }
